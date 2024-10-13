@@ -1,3 +1,4 @@
+from datetime import time
 import json
 import os
 import argparse
@@ -183,13 +184,15 @@ def main():
                 if not args.send or args.url:
                     api = GenericApi(args.url)
                 for session in processor.sessions:
-                    for packet in session.packets:
-                        payload = api.create_payload(packet)
-                        if args.send:
-                            api.submit(payload)
-                        if args.outfile:
-                            with open(args.outfile, "a") as file:
-                                file.write(json.dumps(payload, indent=2))
+                    payload = api.create_payload(session.packets)
+                    if args.send:
+                        api.submit(payload)
+                        time.sleep(
+                            10
+                        )  # TODO: this should only apply to PacketEater, and only until a "new session" command is available
+                    if args.outfile:
+                        with open(args.outfile, "a") as file:
+                            file.write(json.dumps(payload, indent=2))
 
     except Exception as e:
         print(f"An error occurred: {e}")
