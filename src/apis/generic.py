@@ -1,20 +1,28 @@
+from datetime import datetime
 import json
 from typing import List
-import requests
 
 from src.packets.packet import Packet
+from src.session import Session
 
 
 class GenericApi:
-    def __init__(self, url):
-        self.url = url
+    @staticmethod
+    def create_payload(packets: List[Packet]):
+        payload = packets.copy()
+        for packet in payload:
+            packet.data = packet.data.hex().upper()
+        return [
+            {
+                k: v
+                for k, v in packet.__dict__.items()
+                if k in Packet.__annotations__.keys()
+            }
+            for packet in payload
+        ]
 
-    def create_payload(self, packets: List[Packet]):
-        return [packet.data.hex() for packet in packets].__dict__
-
-    def submit(self, payload: dict):
-        response = requests.post(self.url, json=json.dumps(payload))
-        if response.status_code not in [200, 201, 202]:
-            return 0
-        else:
-            return 1
+    @staticmethod
+    def submit(session: Session):
+        payload = GenericApi.create_payload(session.packets)
+        with open(f"{datetime.now().strftime('%Y%m%d-%H%M%S')}.json", "w") as file:
+            file.write(json.dumps(payload, indent=2))

@@ -5,13 +5,14 @@ import os
 import unittest
 from unittest import mock
 
+from src.apis.generic import GenericApi
 from src.packets.packet import Packet, PacketDirection
 from src.processor import Processor
 
 
 class TestProcessor(unittest.TestCase):
     def setUp(self):
-        self.processor = Processor()
+        self.processor = Processor(GenericApi)
         self.timestamp_dt = datetime.now(timezone.utc)
         self.timestamp_str = self.timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
         self.timestamp_int = int(self.timestamp_dt.timestamp())
@@ -69,7 +70,8 @@ class TestProcessor(unittest.TestCase):
         packet = Processor.create_packet(PacketDirection.C2S, self.packet_bytes)
         self.assertIsInstance(packet, Packet)
 
-    def test_process_log_file(self):
+    @mock.patch("src.apis.generic.GenericApi.submit")
+    def test_process_log_file(self, _):
         # TODO: test backfilling zone data
         outgoing_packet = [self.outgoing_packet_line] + self.packet_lines
         incoming_packet = [self.incoming_packet_line] + self.packet_lines
@@ -78,8 +80,7 @@ class TestProcessor(unittest.TestCase):
         log_file = io.StringIO(log_file)
         with mock.patch("src.processor.open", return_value=log_file, create=True):
             self.processor.process_log_file(log_file)
-        self.assertEqual(len(self.processor.sessions), 1)
-        self.assertEqual(len(self.processor.sessions[0].packets), 2)
+        self.assertEqual(len(self.processor.session.packets), 2)
 
     @mock.patch("src.processor.os.listdir")
     @mock.patch(
@@ -93,9 +94,7 @@ class TestProcessor(unittest.TestCase):
         self.processor.process_directory("/mock/directory")
 
         mock_listdir.assert_called_once_with("/mock/directory")
-        mock_process_log_file.assert_called_once_with(
-            self.processor, "/mock/directory/full.log"
-        )
+        mock_process_log_file.assert_called_once_with("/mock/directory/full.log")
 
     def test_process_packet(self):
         packet = Processor.process_packet(

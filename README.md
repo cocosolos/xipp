@@ -21,7 +21,6 @@ As well as raw packet data as a hex string.
 
 ```
 python xipp.py --help
-python xipp.py packetviewer full.log --send --outfile output.json
+python xipp.py packetviewer full.log --send WeatherWatch
 python xipp.py pv "C:\xi captures\" --recursive
-python xipp.py raw 57063100C3002C0003001000 --direction S2C --zone 239 --timestamp 1576654297 --send --url http://localhost/submit
 ```

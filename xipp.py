@@ -1,18 +1,14 @@
-from datetime import time
-import json
+import importlib
 import os
 import argparse
+import zipfile
 
 from src.apis.generic import GenericApi
-from src.apis.packet_eater import PacketEaterApi
 from src.processor import Processor
 from src.packets.packet import PacketDirection
 
 
 def main():
-    api = PacketEaterApi()
-    processor = Processor()
-
     try:
         parser = argparse.ArgumentParser(
             prog="XI Packet Processor",
@@ -24,27 +20,14 @@ def main():
         parser.add_argument(
             "-s",
             "--send",
-            action="store_true",
-            default=False,
-            help="Upload the processed packets.",
-        )
-        parser.add_argument(
-            "-u",
-            "--url",
             action="store",
-            help="URL to upload to.",
-        )
-        parser.add_argument(
-            "-o",
-            "--outfile",
-            action="store",
-            help="File to store output.",
+            help="API to upload the processed packets to.",
         )
         # PacketViewer logs
         pv_data_parser = subparsers.add_parser(
             "packetviewer",
             aliases=["pv"],
-            help="Process and send incoming.log file from PacketViewer.",
+            help="Process and send full.log file from PacketViewer.",
         )
         pv_data_parser.add_argument(
             "target",
@@ -57,26 +40,13 @@ def main():
             "--recursive",
             default=False,
             action="store_true",
-            help="Recursively search directories for incoming.log files to process.",
+            help="Recursively search directories for full.log files to process.",
         )
         pv_data_parser.add_argument(
             "-s",
             "--send",
-            action="store_true",
-            default=False,
-            help="Upload the processed packets.",
-        )
-        pv_data_parser.add_argument(
-            "-u",
-            "--url",
             action="store",
-            help="URL to upload to.",
-        )
-        pv_data_parser.add_argument(
-            "-o",
-            "--outfile",
-            action="store",
-            help="File to store output.",
+            help="API to upload the processed packets to.",
         )
         # TODO: add packet filter arg
         # Raw packets
@@ -92,7 +62,7 @@ def main():
             "-d",
             "--direction",
             action="store",
-            type=int,
+            type=str,
             help="Packet direction (incoming/outgoing).",
         )
         raw_data_parser.add_argument(
@@ -112,24 +82,33 @@ def main():
         raw_data_parser.add_argument(
             "-s",
             "--send",
-            action="store_true",
-            default=False,
-            help="Upload the processed packets.",
-        )
-        raw_data_parser.add_argument(
-            "-u",
-            "--url",
             action="store",
-            help="URL to upload to.",
-        )
-        raw_data_parser.add_argument(
-            "-o",
-            "--outfile",
-            action="store",
-            help="File to store output.",
+            help="API to upload the processed packets to.",
         )
 
         args = parser.parse_args()
+
+        if args.send:
+            current_dir = os.path.dirname(__file__)
+            apis_dir = os.path.join(current_dir, "src/apis")
+            apis_dir = os.path.normpath(apis_dir)
+            for file_name in os.listdir(apis_dir):
+                if file_name.startswith(args.send.lower()) and file_name.endswith(
+                    ".py"
+                ):
+                    module_name = f"src.apis.{file_name[:-3]}"
+                    module = importlib.import_module(module_name)
+                    class_name = f"{args.send}Api"
+                    try:
+                        api_class = getattr(module, class_name)
+                    except:
+                        print("API not valid.")
+                        return
+                    api = api_class
+                    break
+        else:
+            api = GenericApi
+        processor = Processor(api)
 
         if args.command:
             if args.command in ["packetviewer", "pv"]:
@@ -138,7 +117,9 @@ def main():
                     return
                 for target in args.target:
                     target_path = os.path.abspath(target)
-                    if os.path.isfile(target_path):
+                    if zipfile.is_zipfile(target_path):
+                        processor.process_archive(target_path)
+                    elif os.path.isfile(target_path):
                         processor.process_log_file(target_path)
                     elif os.path.isdir(target_path):
                         print(f"Processing directory: {target_path}")
@@ -150,12 +131,7 @@ def main():
                     else:
                         print(f"File or directory not found: {target}")
                         return
-                packets_parsed = 0
-                for session in processor.sessions:
-                    packets_parsed += len(session.packets)
-                print(
-                    f"Done processing {packets_parsed} packets from {len(processor.sessions)} capture logs."
-                )
+                print(f"Done processing capture logs.")
             elif args.command in ["raw", "r"]:
                 if (
                     not args.direction
@@ -175,24 +151,9 @@ def main():
                 packet = Processor.process_packet(
                     direction, packet_data, args.timestamp, args.zone
                 )
-                processor.current_session.packets.append(packet)
-                processor.sessions.append(processor.current_session)
-
+                processor.session.packets.append(packet)
+                processor.api.submit(processor.session)
                 print(f"Done processing packet.")
-
-            if args.send or args.outfile:
-                if not args.send or args.url:
-                    api = GenericApi(args.url)
-                for session in processor.sessions:
-                    payload = api.create_payload(session.packets)
-                    if args.send:
-                        api.submit(payload)
-                        time.sleep(
-                            10
-                        )  # TODO: this should only apply to PacketEater, and only until a "new session" command is available
-                    if args.outfile:
-                        with open(args.outfile, "a") as file:
-                            file.write(json.dumps(payload, indent=2))
 
     except Exception as e:
         print(f"An error occurred: {e}")

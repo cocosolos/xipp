@@ -14,15 +14,19 @@ class PacketDirection(int, Enum):
 
 
 class Packet:
+    capture_timestamp: int
+    direction: PacketDirection
+    type: int
+    size: int
+    sync: int
+    zone_id: int
+    data: bytes
+
     def __init__(self, direction: PacketDirection, packet_data: bytes):
-        self.type: int = (
-            int.from_bytes(packet_data[0x00:0x02], byteorder="little") & ~0xFE00
-        )
-        self.size: int = (
-            int.from_bytes(packet_data[0x01:0x02], byteorder="little") & ~0x80
-        )
-        self.sync: int = int.from_bytes(packet_data[0x02:0x04], byteorder="little")
-        self.data: bytes = packet_data
-        self.direction: PacketDirection = direction
-        self.zone_id: int = None
-        self.capture_timestamp: int = None
+        self.capture_timestamp = None
+        self.direction = direction
+        self.type = int.from_bytes(packet_data[0x00:0x02], byteorder="little") & ~0xFE00
+        self.size = int.from_bytes(packet_data[0x01:0x02], byteorder="little") & ~0x80
+        self.sync = int.from_bytes(packet_data[0x02:0x04], byteorder="little")
+        self.zone_id = None
+        self.data = packet_data

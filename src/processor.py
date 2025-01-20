@@ -1,9 +1,12 @@
+import io
 import os
 import re
-import requests
 from datetime import datetime, timezone
 from typing import List
+from zipfile import ZipFile
+import zipfile
 
+from src.apis.generic import GenericApi
 from src.session import Session
 from src.packets.packet import Packet, PacketDirection
 from src.packets.incoming.IncomingPacket0x000A import IncomingPacket0x000A
@@ -12,14 +15,19 @@ from src.packets.incoming.IncomingPacket0x0057 import IncomingPacket0x0057
 
 
 class Processor:
-    def __init__(self):
-        self.current_session: Session = Session()
-        self.sessions: List[Session] = []
+    def __init__(self, api: GenericApi):
+        self.session: Session = Session()
+        self.api: GenericApi = api
 
-    def process_log_file(self, file_path: str | os.PathLike):
-        print(f"Processing file: {file_path}")
-        with open(file_path, "r", errors="ignore") as file:
-            lines = file.readlines()
+    def process_log_file(self, file_path: str | os.PathLike | io.TextIOWrapper):
+        self.session = Session()
+        if isinstance(file_path, io.TextIOWrapper):
+            print(f"Processing file: {file_path.name}")
+            lines = file_path.readlines()
+        else:
+            print(f"Processing file: {file_path}")
+            with open(file_path, "r", errors="ignore") as file:
+                lines = file.readlines()
 
         packet_lines = []
         reading_packet = False
@@ -36,16 +44,20 @@ class Processor:
                         packet_direction,
                         packet_data,
                         packet_timestamp,
-                        self.current_session.zone_id,
+                        self.session.zone_id,
                     )
-                    self.current_session.zone_id = packet.zone_id
-                    if packet.zone_id and packet.type != 0x000A:
-                        for previous_packet in reversed(self.current_session.packets):
+                    self.session.zone_id = packet.zone_id
+                    if (
+                        packet.zone_id
+                        and not self.session.packets[-1].zone_id
+                        and packet.type != 0x000A
+                    ):
+                        for previous_packet in reversed(self.session.packets):
                             if not previous_packet.zone_id:
                                 previous_packet.zone_id = packet.zone_id
                             else:
                                 break
-                    self.current_session.packets.append(packet)
+                    self.session.packets.append(packet)
                 packet_lines = []
                 reading_packet = False
                 continue
@@ -63,24 +75,40 @@ class Processor:
                 packet_direction,
                 packet_data,
                 packet_timestamp,
-                self.current_session.zone_id,
+                self.session.zone_id,
             )
-            self.current_session.zone_id = packet.zone_id
-            if packet.zone_id and packet.type != 0x000A:
-                for previous_packet in reversed(self.current_session.packets):
+            self.session.zone_id = packet.zone_id
+            if (
+                packet.zone_id
+                and not self.session.packets[-1].zone_id
+                and packet.type != 0x000A
+            ):
+                for previous_packet in reversed(self.session.packets):
                     if not previous_packet.zone_id:
                         previous_packet.zone_id = packet.zone_id
                     else:
                         break
-            self.current_session.packets.append(packet)
-        self.sessions.append(self.current_session)
-        self.current_session = Session()
+            self.session.packets.append(packet)
+        self.api.submit(self.session)
 
     def process_directory(self, dir_path: str | os.PathLike):
         for file in os.listdir(dir_path):
+            file_path = os.path.join(dir_path, file)
             if file == "full.log":
-                file_path = os.path.join(dir_path, file)
-                self.process_log_file(self, file_path)
+                self.process_log_file(file_path)
+            elif zipfile.is_zipfile(file_path):
+                self.process_archive(file_path)
+
+    def process_archive(self, archive_path: str | os.PathLike):
+        with ZipFile(archive_path, "r") as zip_ref:
+            for member in zip_ref.infolist():
+                if member.filename.endswith("full.log"):
+                    print(f"Found log file in archive: {archive_path}")
+                    with zip_ref.open(member.filename) as logfile:
+                        with io.TextIOWrapper(
+                            logfile, encoding="utf-8", errors="ignore"
+                        ) as text_logfile:
+                            self.process_log_file(text_logfile)
 
     @staticmethod
     def process_packet(

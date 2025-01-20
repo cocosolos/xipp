@@ -1,8 +1,12 @@
 from base64 import b64encode
+import json
 from typing import List
+
+import requests
 
 from src.apis.generic import GenericApi
 from src.packets.packet import Packet, PacketDirection
+from src.session import Session
 
 
 class PacketEaterPacket:
@@ -20,9 +24,20 @@ class PacketEaterPayload:
 
 
 class PacketEaterApi(GenericApi):
-    def __init__(self):
-        self.url = "http://localhost/upload"
+    url = "http://localhost/upload"
 
-    def create_payload(self, packets: List[Packet]):
+    @staticmethod
+    def create_payload(packets: List[Packet]):
         payload_packets = [PacketEaterPacket(packet).__dict__ for packet in packets]
         return PacketEaterPayload(payload_packets).__dict__
+
+    @staticmethod
+    def submit(session: Session):
+        payload = PacketEaterApi.create_payload(session.packets)
+        for packet in payload:
+            response = requests.post(
+                PacketEaterApi.url, json=json.dumps(packet), timeout=5
+            )
+            if response.status_code not in [200, 201, 202]:
+                return 0
+        return 1
